@@ -173,8 +173,9 @@ func ParseFrame(b []byte) (*Frame, error) {
 	of := NewFrame(c)
 	of.AddBody(p[len(p)-1])
 	for _, h := range p[1 : len(p)-2] {
-		kv := strings.Split(h, ":")
-		of.AddHeader(kv[0], kv[1])
+		if kv := strings.Split(h, ":"); len(kv) == 2 {
+			of.AddHeader(kv[0], kv[1])
+		}
 	}
 
 	return &of, nil

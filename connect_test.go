@@ -1,19 +1,17 @@
 package stomp
 
-import (
-	"log"
-	"os"
-	"testing"
-)
-
-var logger = log.New(os.Stdout, "", log.Ldate|log.Lmicroseconds)
+import "testing"
 
 func TestConnectDisconnect(t *testing.T) {
 	conn, e := NewConnection("localhost", "61613")
 	if e != nil {
 		t.Fatal(e)
 	}
-	conn.SetLogger(logger)
-	conn.Connect("user", "guest")
-	conn.Disconnect()
+	setlogger(conn)
+	if e := conn.Connect(); e != nil {
+		t.Fatal(e)
+	}
+	if e := conn.Disconnect(); e != nil {
+		t.Fatal(e)
+	}
 }
