@@ -1,17 +1,25 @@
-package stomp
+package stomp_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/aputs/go-stomp"
+)
 
 func TestConnectDisconnect(t *testing.T) {
-	conn, e := NewConnection("localhost", "61613")
-	if e != nil {
-		t.Fatal(e)
-	}
+	var (
+		conn *stomp.Connection
+		e    error
+	)
+
+	conn, e = stomp.NewConnection("localhost", "61613")
+	ok(t, e)
+
 	setlogger(conn)
-	if e := conn.Connect(); e != nil {
-		t.Fatal(e)
-	}
-	if e := conn.Disconnect(); e != nil {
-		t.Fatal(e)
-	}
+
+	e = conn.Connect()
+	ok(t, e)
+
+	e = conn.Disconnect()
+	ok(t, e)
 }

@@ -80,8 +80,7 @@ func (c *Connection) writeFrame(f Frame) (*Frame, error) {
 	}
 
 	if len(resp) == 0 {
-		uf := NewFrame(UNKNOWN)
-		return &uf, nil
+		return NullFrame, nil
 	}
 
 	return ParseFrame(resp)

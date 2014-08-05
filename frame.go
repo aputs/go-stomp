@@ -98,6 +98,8 @@ type Frame struct {
 	body    string
 }
 
+var NullFrame = &Frame{command: UNKNOWN, headers: map[string]string{}}
+
 func NewFrame(cmd Command) Frame {
 	return Frame{command: cmd}
 }
