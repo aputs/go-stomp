@@ -2,7 +2,7 @@ package stomp
 
 import (
 	"errors"
-	"net"
+	"time"
 )
 
 func (c *Connection) Send(dest string, body string, headers ...string) error {
@@ -14,23 +14,35 @@ func (c *Connection) Send(dest string, body string, headers ...string) error {
 		f.AddHeader(k, v)
 	}
 
-	var receiptRequested bool
+	var (
+		receiptRequested bool
+		receiptReceived  bool
+	)
 
 	if _, found := f.Headers()["receipt"]; found {
 		receiptRequested = true
 	}
 
-	rf, e := c.writeFrame(f)
-	if e != nil {
-		if neterr, ok := e.(net.Error); ok && neterr.Timeout() && receiptRequested {
-			return e
+	c.out <- f
+
+	if receiptRequested {
+		select {
+		case rf := <-c.in:
+			switch rf.command {
+			case RECEIPT:
+				receiptReceived = true
+			case ERROR:
+				return errors.New(rf.Headers()["message"])
+			}
+		case <-time.After(c.ResponseTimeout):
+			break
+		}
+		if !receiptReceived {
+			return errors.New("receipt was requested, but was not received")
 		}
 	}
 
-	if receiptRequested && rf.command != RECEIPT {
-		return errors.New("receipt was requested, but was not received")
-	}
-
 	c.log("done sending...")
+
 	return nil
 }

@@ -1,7 +1,6 @@
 package stomp
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -14,10 +13,21 @@ type Connection struct {
 
 	sync.Mutex
 	net.Conn
+
 	session string
 	version string
 	server  string
-	logger  *log.Logger
+	in      chan Frame
+	out     chan Frame
+	err     chan ConnectionError
+
+	logger *log.Logger
+}
+
+type ConnectionError struct {
+	c *Connection
+	f *Frame
+	e error
 }
 
 func NewConnection(host, port string) (c *Connection, e error) {
@@ -30,60 +40,49 @@ func NewConnection(host, port string) (c *Connection, e error) {
 	c.session = "none"
 	c.ResponseTimeout = 200 * time.Millisecond
 
+	c.in = make(chan Frame)
+	c.out = make(chan Frame)
+	c.err = make(chan ConnectionError)
+
+	go c.outgoing()
+	go c.incoming()
+
 	return
 }
 
-func (c *Connection) writeFrame(f Frame) (*Frame, error) {
-	c.Lock()
-	defer c.Unlock()
+func (c *Connection) incoming() {
+	for {
+		buf := make([]byte, 4096)
+		n, e := c.Conn.Read(buf)
+		if e != nil {
+			if neterr, ok := e.(net.Error); ok && neterr.Timeout() {
+				c.err <- ConnectionError{c: c, e: e, f: NullFrame}
+				continue
+			}
+		}
 
-	var n int
+		f, e := ParseFrame(buf)
+		if e != nil {
+			c.err <- ConnectionError{c: c, e: e, f: NullFrame}
+			continue
+		}
 
-	var buf = f.Bytes()
-
-	n, e := c.Conn.Write(buf)
-	if e != nil {
-		return nil, e
+		c.log(fmt.Sprintf("received %q", string(buf[:n])))
+		c.in <- *f
 	}
+}
 
-	if n != len(buf) {
-		return nil, errors.New("not all bytes were written")
-	}
-
-	var resp []byte
-
-	status := make(chan error)
-	go func() {
-		for {
-			buf := make([]byte, 4096)
-			c.Conn.SetReadDeadline(time.Now().Add(c.ResponseTimeout))
-			n, e := c.Conn.Read(buf)
+func (c *Connection) outgoing() {
+	for {
+		select {
+		case out := <-c.out:
+			c.log(fmt.Sprintf("sending %q", string(out.Bytes())))
+			_, e := c.Conn.Write(out.Bytes())
 			if e != nil {
-				status <- e
-				return
-			}
-			for i := 0; i < n; i++ {
-				resp = append(resp, buf[i])
-				if buf[i] == NULL {
-					status <- nil
-					return
-				}
+				c.err <- ConnectionError{e: e, c: c, f: &out}
 			}
 		}
-	}()
-
-	select {
-	case err := <-status:
-		if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
-			return nil, err
-		}
 	}
-
-	if len(resp) == 0 {
-		return NullFrame, nil
-	}
-
-	return ParseFrame(resp)
 }
 
 // connection logging

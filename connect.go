@@ -2,7 +2,7 @@ package stomp
 
 import (
 	"errors"
-	"net"
+	"time"
 )
 
 func (c *Connection) Connect(headers ...string) error {
@@ -19,32 +19,54 @@ func (c *Connection) Connect(headers ...string) error {
 	}
 
 	// TODO setup heartbeating
-	rf, e := c.writeFrame(f)
-	if e != nil {
-		return e
-	}
-	switch rf.command {
-	case CONNECTED:
-	case ERROR:
-		return errors.New(rf.Headers()["message"])
+
+	c.out <- f
+
+	select {
+	case rf := <-c.in:
+		switch rf.command {
+		case CONNECTED:
+			c.session = rf.headers["session"]
+			c.version = rf.headers["version"]
+			c.server = rf.headers["server"]
+			return nil
+
+			c.log("connected.")
+		case ERROR:
+			return errors.New(rf.Headers()["message"])
+		}
+	case <-time.After(c.ResponseTimeout):
+		break
 	}
 
-	c.session = rf.headers["session"]
-	c.version = rf.headers["version"]
-	c.server = rf.headers["server"]
-	c.log("connected.")
-	return nil
+	return errors.New("No Response was received.")
 }
 
 func (c *Connection) Disconnect() error {
 	c.log("disconnecting...")
-	f := NewFrame(DISCONNECT)
-	_, e := c.writeFrame(f)
-	if e != nil {
-		if neterr, ok := e.(net.Error); ok && !neterr.Timeout() {
-			return e
+
+	c.out <- NewFrame(DISCONNECT)
+
+	select {
+	case rf := <-c.in:
+		switch rf.command {
+		case CONNECTED:
+			return nil
+
+			c.log("connected.")
+		case ERROR:
+			return errors.New(rf.Headers()["message"])
 		}
+	case <-time.After(c.ResponseTimeout):
+		break
 	}
+
+	c.Close()
+
+	c.session = ""
+	c.version = ""
+	c.server = ""
+
 	c.log("disconnected.")
 	return nil
 }
