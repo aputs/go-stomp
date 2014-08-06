@@ -63,10 +63,11 @@ func (c *Connection) Disconnect() error {
 
 	c.Close()
 
+	c.log("disconnected.")
+
 	c.session = ""
 	c.version = ""
 	c.server = ""
 
-	c.log("disconnected.")
 	return nil
 }

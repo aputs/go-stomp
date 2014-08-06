@@ -14,12 +14,15 @@ type Connection struct {
 	sync.Mutex
 	net.Conn
 
-	session string
-	version string
-	server  string
-	in      chan Frame
-	out     chan Frame
-	err     chan ConnectionError
+	session   string
+	version   string
+	server    string
+	connected bool
+
+	in            chan Frame
+	out           chan Frame
+	err           chan ConnectionError
+	subscriptions map[string]chan Frame
 
 	logger *log.Logger
 }
@@ -43,6 +46,7 @@ func NewConnection(host, port string) (c *Connection, e error) {
 	c.in = make(chan Frame)
 	c.out = make(chan Frame)
 	c.err = make(chan ConnectionError)
+	c.subscriptions = make(map[string]chan Frame)
 
 	go c.outgoing()
 	go c.incoming()
@@ -68,7 +72,20 @@ func (c *Connection) incoming() {
 		}
 
 		c.log(fmt.Sprintf("received %q", string(buf[:n])))
-		c.in <- *f
+
+		switch f.command {
+		case MESSAGE:
+			dest := f.Headers()["destination"]
+			if _, found := c.subscriptions[dest]; found {
+				c.log(fmt.Sprintf("% #v", f))
+				c.subscriptions[dest] <- *f
+				break
+			}
+			fallthrough
+		default:
+			c.in <- *f
+		}
+
 	}
 }
 
@@ -91,6 +108,10 @@ func (c *Connection) log(v ...interface{}) {
 		c.logger.Printf("[%s] %s", c.session, fmt.Sprint(v...))
 	}
 	return
+}
+
+func (c *Connection) Connected() bool {
+	return c.connected
 }
 
 func (c *Connection) SetLogger(l *log.Logger) {

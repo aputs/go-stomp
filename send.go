@@ -23,6 +23,8 @@ func (c *Connection) Send(dest string, body string, headers ...string) error {
 		receiptRequested = true
 	}
 
+	f.AddBody(body)
+
 	c.out <- f
 
 	if receiptRequested {

@@ -1,9 +1,6 @@
 package stomp
 
-import (
-	"errors"
-	"strings"
-)
+import "errors"
 
 const (
 	NULL byte = 0
@@ -142,43 +139,63 @@ func (f *Frame) Bytes() []byte {
 	}
 
 	buf = append(buf, eol...)
+	buf = append(buf, f.body...)
 	buf = append(buf, NULL)
-	buf = append(buf, eol...)
+	//buf = append(buf, eol...)
+
 	return buf
 }
 
-func ParseFrame(b []byte) (*Frame, error) {
-	p := []string{}
-	buf := []byte{}
-
-	for i := 0; i < len(b); i++ {
-		switch b[i] {
-		case CR:
-			p = append(p, string(buf))
-			buf = []byte{}
-		case NULL:
-			p = append(p, "")
-		default:
-			buf = append(buf, b[i])
-		}
-	}
-
-	if len(p) < 4 {
+func ParseFrame(buf []byte) (*Frame, error) {
+	if len(buf) == 0 {
 		return nil, errors.New("invalid frame!")
 	}
 
-	c, found := commands[p[0]]
-	if !found {
-		return nil, errors.New("invalid frame!")
-	}
+	of := &Frame{headers: map[string]string{}}
+	eol := byte(EOL)
+	pos := 0
+	epos := pos
 
-	of := NewFrame(c)
-	of.AddBody(p[len(p)-1])
-	for _, h := range p[1 : len(p)-2] {
-		if kv := strings.Split(h, ":"); len(kv) == 2 {
-			of.AddHeader(kv[0], kv[1])
+	// frame type
+	for ; buf[epos] != NULL; epos++ {
+		if buf[epos] == eol {
+			break
 		}
 	}
+	ft := string(buf[pos:epos])
+	found := false
+	if of.command, found = commands[ft]; !found {
+		return nil, errors.New("unknown frame type!")
+	}
 
-	return &of, nil
+	// headers
+	epos++
+	for buf[epos] != NULL {
+		pos = epos
+		cpos := pos
+		for ; buf[epos] != NULL; epos++ {
+			if buf[epos] == eol {
+				break
+			}
+			if buf[epos] == ':' {
+				cpos = epos
+			}
+		}
+		hk := string(buf[pos:cpos])
+		if len(hk) == 0 {
+			break
+		}
+		hv := string(buf[cpos+1 : epos])
+		of.AddHeader(hk, hv)
+		epos++
+	}
+
+	// body
+	epos++
+	pos = epos
+	for ; buf[epos] != NULL; epos++ {
+	}
+	of.AddBody(string(buf[pos:epos]))
+
+	return of, nil
 }
