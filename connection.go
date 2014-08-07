@@ -14,15 +14,17 @@ type Connection struct {
 	sync.Mutex
 	net.Conn
 
-	session   string
-	version   string
-	server    string
-	connected bool
+	session string
+	version string
+	server  string
 
-	in            chan Frame
-	out           chan Frame
+	in            chan *Frame
+	out           chan *Frame
 	err           chan ConnectionError
 	subscriptions map[string]chan Frame
+
+	connected         bool
+	connectionClosing chan bool
 
 	logger *log.Logger
 }
@@ -43,26 +45,49 @@ func NewConnection(host, port string) (c *Connection, e error) {
 	c.session = "none"
 	c.ResponseTimeout = 200 * time.Millisecond
 
-	c.in = make(chan Frame)
-	c.out = make(chan Frame)
+	c.in = make(chan *Frame)
+	c.out = make(chan *Frame)
 	c.err = make(chan ConnectionError)
 	c.subscriptions = make(map[string]chan Frame)
 
+	c.connectionClosing = make(chan bool, 1)
+	c.connected = true
+
+	go c.connectionHandler()
+	go c.errorHandler()
 	go c.outgoing()
 	go c.incoming()
 
 	return
 }
 
-func (c *Connection) incoming() {
+func (c *Connection) connectionHandler() {
 	for {
+		select {
+		case <-c.connectionClosing:
+			c.connected = false
+		}
+	}
+}
+
+func (c *Connection) errorHandler() {
+	for c.connected {
+		select {
+		case e := <-c.err:
+			c.log(fmt.Sprintf("connection error: %s", e.e))
+		}
+	}
+}
+
+func (c *Connection) incoming() {
+	for c.connected {
 		buf := make([]byte, 4096)
 		n, e := c.Conn.Read(buf)
 		if e != nil {
-			if neterr, ok := e.(net.Error); ok && neterr.Timeout() {
+			if neterr, ok := e.(net.Error); ok && !neterr.Timeout() {
 				c.err <- ConnectionError{c: c, e: e, f: NullFrame}
-				continue
 			}
+			continue
 		}
 
 		f, e := ParseFrame(buf)
@@ -75,7 +100,7 @@ func (c *Connection) incoming() {
 
 		switch f.command {
 		case MESSAGE:
-			dest := f.Headers()["destination"]
+			dest, _ := f.GetHeader("destination")
 			if _, found := c.subscriptions[dest]; found {
 				c.log(fmt.Sprintf("% #v", f))
 				c.subscriptions[dest] <- *f
@@ -83,20 +108,22 @@ func (c *Connection) incoming() {
 			}
 			fallthrough
 		default:
-			c.in <- *f
+			c.in <- f
 		}
 
 	}
+
+	c.Close()
 }
 
 func (c *Connection) outgoing() {
-	for {
+	for c.connected {
 		select {
 		case out := <-c.out:
 			c.log(fmt.Sprintf("sending %q", string(out.Bytes())))
 			_, e := c.Conn.Write(out.Bytes())
 			if e != nil {
-				c.err <- ConnectionError{e: e, c: c, f: &out}
+				c.err <- ConnectionError{e: e, c: c, f: out}
 			}
 		}
 	}

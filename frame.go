@@ -1,6 +1,9 @@
 package stomp
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	NULL byte = 0
@@ -95,10 +98,10 @@ type Frame struct {
 	body    string
 }
 
-var NullFrame = &Frame{command: UNKNOWN, headers: map[string]string{}}
+var NullFrame = NewFrame(UNKNOWN)
 
-func NewFrame(cmd Command) Frame {
-	return Frame{command: cmd}
+func NewFrame(cmd Command) *Frame {
+	return &Frame{command: cmd, headers: Headers{}}
 }
 
 func (f *Frame) AddBody(body string) *Frame {
@@ -114,13 +117,15 @@ func (f *Frame) AddHeader(key, value string) *Frame {
 	if f.headers == nil {
 		f.headers = Headers{}
 	}
-	// TODO check header value sanity
 	f.headers[key] = value
 	return f
 }
 
-func (f *Frame) Headers() map[string]string {
-	return f.headers
+func (f *Frame) GetHeader(key string) (string, bool) {
+	if v, found := f.headers[key]; found {
+		return v, true
+	}
+	return "", false
 }
 
 func (f *Frame) Bytes() []byte {
@@ -132,6 +137,8 @@ func (f *Frame) Bytes() []byte {
 	buf = append(buf, eol...)
 
 	for k, v := range f.headers {
+		k = encode(k)
+		v = encode(v)
 		buf = append(buf, k...)
 		buf = append(buf, ':')
 		buf = append(buf, v...)
@@ -139,9 +146,10 @@ func (f *Frame) Bytes() []byte {
 	}
 
 	buf = append(buf, eol...)
-	buf = append(buf, f.body...)
+	body, _ := decode(f.body)
+	buf = append(buf, body...)
 	buf = append(buf, NULL)
-	//buf = append(buf, eol...)
+	buf = append(buf, eol...)
 
 	return buf
 }
@@ -151,7 +159,8 @@ func ParseFrame(buf []byte) (*Frame, error) {
 		return nil, errors.New("invalid frame!")
 	}
 
-	of := &Frame{headers: map[string]string{}}
+	var e error
+	of := NewFrame(UNKNOWN)
 	eol := byte(EOL)
 	pos := 0
 	epos := pos
@@ -185,7 +194,13 @@ func ParseFrame(buf []byte) (*Frame, error) {
 		if len(hk) == 0 {
 			break
 		}
+		if hk, e = decode(hk); e != nil {
+			return nil, errors.New("invalid frame, invalid header key")
+		}
 		hv := string(buf[cpos+1 : epos])
+		if hv, e = decode(hv); e != nil {
+			return nil, errors.New("invalid frame, invalid header value")
+		}
 		of.AddHeader(hk, hv)
 		epos++
 	}
@@ -195,7 +210,65 @@ func ParseFrame(buf []byte) (*Frame, error) {
 	pos = epos
 	for ; buf[epos] != NULL; epos++ {
 	}
-	of.AddBody(string(buf[pos:epos]))
+	var body string
+	body, e = decode(string(buf[pos:epos]))
+	if e != nil {
+		return nil, e
+	}
+	of.AddBody(body)
 
 	return of, nil
+}
+
+func encode(in string) string {
+	var out []rune
+	for _, c := range in {
+		switch c {
+		case ':':
+			out = append(out, '\\')
+			out = append(out, 'c')
+		case '\r':
+			out = append(out, '\\')
+			out = append(out, 'r')
+		case '\n':
+			out = append(out, '\\')
+			out = append(out, 'n')
+		case '\\':
+			out = append(out, '\\')
+			out = append(out, '\\')
+		default:
+			out = append(out, c)
+		}
+	}
+	return string(out)
+}
+
+func decode(in string) (string, error) {
+	var buf, out []rune
+	for _, c := range in {
+		buf = append(buf, c)
+	}
+	for i := 0; i < len(buf); i++ {
+		switch c := buf[i]; c {
+		case '\\':
+			i++
+			if i >= len(buf) {
+				out = append(out, '\\')
+				break
+			}
+			switch x := buf[i]; x {
+			case 'c':
+				out = append(out, ':')
+			case 'r':
+				out = append(out, '\r')
+			case 'n':
+				out = append(out, '\n')
+			default:
+				return "", errors.New(fmt.Sprintf("unknown escape sequence `\\%c`", x))
+			}
+		default:
+			out = append(out, c)
+		}
+	}
+	return string(out), nil
 }

@@ -19,7 +19,7 @@ func (c *Connection) Send(dest string, body string, headers ...string) error {
 		receiptReceived  bool
 	)
 
-	if _, found := f.Headers()["receipt"]; found {
+	if _, found := f.GetHeader("receipt"); found {
 		receiptRequested = true
 	}
 
@@ -34,7 +34,8 @@ func (c *Connection) Send(dest string, body string, headers ...string) error {
 			case RECEIPT:
 				receiptReceived = true
 			case ERROR:
-				return errors.New(rf.Headers()["message"])
+				msg, _ := rf.GetHeader("message")
+				return errors.New(msg)
 			}
 		case <-time.After(c.ResponseTimeout):
 			break

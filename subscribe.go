@@ -19,11 +19,11 @@ func (c *Connection) Subscribe(dest string, headers ...string) (<-chan Frame, er
 		f.AddHeader(k, v)
 	}
 
-	if _, found := f.Headers()["id"]; !found {
+	if _, found := f.GetHeader("id"); found {
 		f.AddHeader("id", Uuid())
 	}
 
-	if x, found := f.Headers()["ack"]; found {
+	if x, found := f.GetHeader("ack"); found {
 		if _, valid := map[string]bool{
 			"auto":              true,
 			"client":            true,
@@ -40,7 +40,7 @@ func (c *Connection) Subscribe(dest string, headers ...string) (<-chan Frame, er
 		receiptReceived  bool
 	)
 
-	if _, found := f.Headers()["receipt"]; found {
+	if _, found := f.GetHeader("receipt"); found {
 		receiptRequested = true
 	}
 
@@ -52,7 +52,8 @@ func (c *Connection) Subscribe(dest string, headers ...string) (<-chan Frame, er
 		case RECEIPT:
 			receiptReceived = true
 		case ERROR:
-			return nil, errors.New(rf.Headers()["message"])
+			msg, _ := rf.GetHeader("message")
+			return nil, errors.New(msg)
 		}
 	case <-time.After(c.ResponseTimeout):
 		break

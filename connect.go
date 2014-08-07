@@ -14,7 +14,7 @@ func (c *Connection) Connect(headers ...string) error {
 	}
 
 	// sanity checks
-	if _, found := f.headers["accept-version"]; !found {
+	if _, found := f.GetHeader("accept-version"); !found {
 		f.AddHeader("accept-version", "1.1")
 	}
 
@@ -32,7 +32,8 @@ func (c *Connection) Connect(headers ...string) error {
 			c.log("connected.")
 			return nil
 		case ERROR:
-			return errors.New(rf.Headers()["message"])
+			msg, _ := rf.GetHeader("message")
+			return errors.New(msg)
 		}
 	case <-time.After(c.ResponseTimeout):
 		break
@@ -53,19 +54,19 @@ func (c *Connection) Disconnect() error {
 			c.log("connected.")
 			return nil
 		case ERROR:
-			return errors.New(rf.Headers()["message"])
+			msg, _ := rf.GetHeader("message")
+			return errors.New(msg)
 		}
 	case <-time.After(c.ResponseTimeout):
 		break
 	}
-
-	c.Close()
 
 	c.log("disconnected.")
 
 	c.session = ""
 	c.version = ""
 	c.server = ""
+	c.connectionClosing <- true
 
 	return nil
 }
