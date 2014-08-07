@@ -29,9 +29,8 @@ func (c *Connection) Connect(headers ...string) error {
 			c.session = rf.headers["session"]
 			c.version = rf.headers["version"]
 			c.server = rf.headers["server"]
-			return nil
-
 			c.log("connected.")
+			return nil
 		case ERROR:
 			return errors.New(rf.Headers()["message"])
 		}
@@ -51,9 +50,8 @@ func (c *Connection) Disconnect() error {
 	case rf := <-c.in:
 		switch rf.command {
 		case CONNECTED:
-			return nil
-
 			c.log("connected.")
+			return nil
 		case ERROR:
 			return errors.New(rf.Headers()["message"])
 		}
